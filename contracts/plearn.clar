@@ -276,30 +276,36 @@
       (print {event: "answer-verified", quiz-id: quiz-id, user: user, verified-by: tx-sender})
       (ok true))))
 
+;; FIXED: Critical bug fix for STX transfer in claim-reward function
 (define-public (claim-reward (quiz-id uint))
   (begin
     (asserts! (is-initialized) ERR-NOT-AUTHORIZED)
     (asserts! (validate-quiz-id quiz-id) ERR-INVALID-QUIZ-ID)
     
     (let ((entry (unwrap! (map-get? completed {quiz-id: quiz-id, user: tx-sender}) ERR-NOT-VERIFIED-OR-CLAIMED))
-          (quiz-data (unwrap! (map-get? quizzes quiz-id) ERR-QUIZ-NOT-FOUND)))
+          (quiz-data (unwrap! (map-get? quizzes quiz-id) ERR-QUIZ-NOT-FOUND))
+          (claiming-user tx-sender)) ;; Store the claiming user in current context
       
       (asserts! (and (get verified entry) (not (get claimed entry))) 
                 ERR-NOT-VERIFIED-OR-CLAIMED)
       
-      (let ((amount (get reward quiz-data)))
+      (let ((amount (get reward quiz-data))
+            (contract-principal (as-contract tx-sender)))
         ;; Check contract has sufficient balance
-        (asserts! (>= (stx-get-balance (as-contract tx-sender)) amount) ERR-INSUFFICIENT-BALANCE)
+        (asserts! (>= (stx-get-balance contract-principal) amount) ERR-INSUFFICIENT-BALANCE)
         
-        ;; Transfer reward from contract to user
-        (unwrap! (as-contract (stx-transfer? amount tx-sender tx-sender)) ERR-TRANSFER-FAILED)
+        ;; FIXED: Transfer reward from contract to the actual claiming user
+        (unwrap! (as-contract (stx-transfer? amount tx-sender claiming-user)) ERR-TRANSFER-FAILED)
+        
+        ;; Update contract balance tracking
+        (var-set contract-balance (- (var-get contract-balance) amount))
         
         ;; Mark as claimed
-        (map-set completed {quiz-id: quiz-id, user: tx-sender}
+        (map-set completed {quiz-id: quiz-id, user: claiming-user}
           (merge entry {claimed: true, claimed-at: (some stacks-block-height)}))
         
         (update-quiz-stats quiz-id "claimed")
-        (print {event: "reward-claimed", quiz-id: quiz-id, user: tx-sender, amount: amount})
+        (print {event: "reward-claimed", quiz-id: quiz-id, user: claiming-user, amount: amount})
         (ok amount)))))
 
 ;; =============================================================================
@@ -378,3 +384,7 @@
 ;; Simple quiz listing for frontend
 (define-read-only (get-quiz-count)
   (- (var-get next-quiz-id) u1))
+
+;; Enhanced read-only function to get tracked contract balance
+(define-read-only (get-tracked-contract-balance)
+  (var-get contract-balance))
