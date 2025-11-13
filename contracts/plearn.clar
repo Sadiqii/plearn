@@ -22,9 +22,10 @@
 (define-constant ERR-LIST-FULL (err u426))
 (define-constant ERR-INVALID-HASH (err u427))
 (define-constant ERR-TRANSFER-FAILED (err u428))
+(define-constant ERR-ESCROW-UNFUNDED (err u429))
 
 ;; Constants
-(define-constant CONTRACT-OWNER tx-sender)
+(define-constant CONTRACT-OWNER 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)
 (define-constant MAX-VERIFIED-USERS u100)
 (define-constant MIN-REWARD u1000000) ;; 1 STX minimum
 (define-constant MAX-REWARD u100000000000) ;; 100,000 STX maximum
@@ -36,7 +37,9 @@
 
 (define-data-var next-quiz-id uint u1)
 (define-data-var contract-balance uint u0)
+(define-data-var reserved-balance uint u0)
 (define-data-var initialized bool false)
+(define-data-var owner-principal principal CONTRACT-OWNER)
 
 ;; =============================================================================
 ;; DATA MAPS
@@ -48,6 +51,7 @@
     title: (string-ascii 100),
     hash: (buff 32),
     reward: uint,
+    escrowed: uint,
     creator: principal,
     created-at: uint,
     auto-verify: bool,
@@ -87,17 +91,17 @@
 ;; =============================================================================
 
 (define-public (initialize)
-  (begin
-    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+  (let ((owner (get-owner)))
+    (asserts! (is-eq tx-sender owner) ERR-NOT-AUTHORIZED)
     (asserts! (not (var-get initialized)) ERR-ALREADY-INITIALIZED)
     
     ;; Bootstrap contract owner as first admin
     (map-set contributors 
-      CONTRACT-OWNER
-      {added: true, added-by: CONTRACT-OWNER, added-at: stacks-block-height})
+      owner
+      {added: true, added-by: owner, added-at: stacks-block-height})
     
     (var-set initialized true)
-    (print {event: "contract-initialized", owner: CONTRACT-OWNER})
+    (print {event: "contract-initialized", owner: owner})
     (ok true)))
 
 ;; =============================================================================
@@ -115,6 +119,16 @@
 
 (define-private (validate-hash (hash (buff 32)))
   (> (len hash) u0))
+
+(define-private (get-owner)
+  (var-get owner-principal))
+
+(define-private (available-contract-balance)
+  (let ((total (var-get contract-balance))
+        (reserved (var-get reserved-balance)))
+    (if (> reserved total)
+        u0
+        (- total reserved))))
 
 (define-private (update-quiz-stats (quiz-id uint) (stat-type (string-ascii 20)))
   (let ((current-stats (default-to 
@@ -178,8 +192,10 @@
     (asserts! (validate-hash answer-hash) ERR-INVALID-HASH)
     (asserts! (and (>= reward MIN-REWARD) (<= reward MAX-REWARD)) ERR-INVALID-REWARD)
     
-    (let ((id (var-get next-quiz-id)))
+    (let ((id (var-get next-quiz-id))
+          (available (available-contract-balance)))
       (asserts! (< id MAX-QUIZ-ID) ERR-INVALID-QUIZ-ID)
+      (asserts! (>= available reward) ERR-INSUFFICIENT-BALANCE)
       
       (map-set quizzes
         id
@@ -187,12 +203,15 @@
           title: title,
           hash: answer-hash,
           reward: reward,
+          escrowed: reward,
           creator: tx-sender,
           created-at: stacks-block-height,
           auto-verify: auto-verify,
           verified-users: (list),
           active: true
         })
+      
+      (var-set reserved-balance (+ (var-get reserved-balance) reward))
       
       ;; Initialize stats
       (map-set quiz-stats id
@@ -209,10 +228,23 @@
     (asserts! (validate-quiz-id quiz-id) ERR-INVALID-QUIZ-ID)
     
     (let ((quiz-data (unwrap! (map-get? quizzes quiz-id) ERR-QUIZ-NOT-FOUND)))
-      (map-set quizzes quiz-id
-        (merge quiz-data {active: false}))
-      (print {event: "quiz-deactivated", quiz-id: quiz-id, deactivated-by: tx-sender})
-      (ok true))))
+      (let ((creator (get creator quiz-data))
+            (refunded (get escrowed quiz-data)))
+        (begin
+          ;; Refund any unused escrow back to quiz creator
+          (if (> refunded u0)
+              (begin
+                (asserts! (>= (var-get reserved-balance) refunded) ERR-ESCROW-UNFUNDED)
+                (var-set reserved-balance (- (var-get reserved-balance) refunded))
+                (unwrap! (as-contract (stx-transfer? refunded tx-sender creator)) ERR-TRANSFER-FAILED)
+                (var-set contract-balance (- (var-get contract-balance) refunded))
+                true)
+              true)
+          
+          (map-set quizzes quiz-id
+            (merge quiz-data {active: false, escrowed: u0}))
+          (print {event: "quiz-deactivated", quiz-id: quiz-id, refunded: refunded, deactivated-by: tx-sender, refunded-to: creator})
+          (ok true))))))
 
 ;; =============================================================================
 ;; USER FUNCTIONS
@@ -290,7 +322,10 @@
                 ERR-NOT-VERIFIED-OR-CLAIMED)
       
       (let ((amount (get reward quiz-data))
+            (escrowed (get escrowed quiz-data))
             (contract-principal (as-contract tx-sender)))
+        (asserts! (>= escrowed amount) ERR-ESCROW-UNFUNDED)
+        (asserts! (>= (var-get reserved-balance) amount) ERR-ESCROW-UNFUNDED)
         ;; Check contract has sufficient balance
         (asserts! (>= (stx-get-balance contract-principal) amount) ERR-INSUFFICIENT-BALANCE)
         
@@ -299,10 +334,13 @@
         
         ;; Update contract balance tracking
         (var-set contract-balance (- (var-get contract-balance) amount))
+        (var-set reserved-balance (- (var-get reserved-balance) amount))
         
         ;; Mark as claimed
         (map-set completed {quiz-id: quiz-id, user: claiming-user}
           (merge entry {claimed: true, claimed-at: (some stacks-block-height)}))
+        (map-set quizzes quiz-id
+          (merge quiz-data {escrowed: (- escrowed amount), active: false}))
         
         (update-quiz-stats quiz-id "claimed")
         (print {event: "reward-claimed", quiz-id: quiz-id, user: claiming-user, amount: amount})
@@ -339,6 +377,7 @@
         quiz (ok {
           title: (get title quiz),
           reward: (get reward quiz),
+          escrowed: (get escrowed quiz),
           creator: (get creator quiz),
           created-at: (get created-at quiz),
           active: (get active quiz),
@@ -388,3 +427,9 @@
 ;; Enhanced read-only function to get tracked contract balance
 (define-read-only (get-tracked-contract-balance)
   (var-get contract-balance))
+
+(define-read-only (get-reserved-contract-balance)
+  (var-get reserved-balance))
+
+(define-read-only (get-available-contract-balance)
+  (available-contract-balance))
