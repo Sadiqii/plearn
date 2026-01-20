@@ -1,0 +1,22 @@
+Title: Stacks Documentation
+
+URL Source: https://docs.stacks.co/write-smart-contracts/language-functions
+
+Warning: Target URL returned error 404: Not Found
+
+Markdown Content:
+[Dual Stacking is live! Learn about the new BTC-denominated rewards mechanism on Stacks.](https://docs.stacks.co/dual-stacking)
+
+[![Image 1: Logo](https://docs.stacks.co/~gitbook/image?url=https%3A%2F%2F4235289927-files.gitbook.io%2F%7E%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Forganizations%252Fhoh4mQXTl8NvI3cETroY%252Fsites%252Fsite_5KhOC%252Flogo%252F8ha6btSbAby9IekaxdqQ%252FGroup%2520316124664%25202.png%3Falt%3Dmedia%26token%3Da562616c-e9aa-4957-9c1e-1b40d60cf13c&width=260&dpr=4&quality=100&sign=8613aad2&sv=2)![Image 2: Logo](https://docs.stacks.co/~gitbook/image?url=https%3A%2F%2F4235289927-files.gitbook.io%2F%7E%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Forganizations%252Fhoh4mQXTl8NvI3cETroY%252Fsites%252Fsite_5KhOC%252Flogo%252F9vplQp8GytJ1EpRNeo4C%252FChatGPT%2520Image%2520Oct%252015%252C%25202025%252C%252012_04_54%2520PM%25201.png%3Falt%3Dmedia%26token%3Dd05a5e71-b735-4764-add8-aa1e0d5eefb3&width=260&dpr=4&quality=100&sign=5d9e02fb&sv=2)](https://docs.stacks.co/)
+
+Ctrl k
+
+*   [Learn](https://docs.stacks.co/)
+*   [Build](https://docs.stacks.co/build)
+*   [Operate](https://docs.stacks.co/operate)
+*   [Reference](https://docs.stacks.co/reference)
+
+Page not found
+--------------
+
+The page you are looking for doesn't exist.
